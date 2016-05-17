@@ -1,0 +1,1 @@
+# walkcambridge-plugin
