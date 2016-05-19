@@ -32,6 +32,7 @@ function cronstarter_activate()
 	if( !wp_next_scheduled( 'myCronJob' ) )
 	{
 		wp_schedule_event( time(), 'twicedaily', 'myCronJob' );
+//		wp_schedule_event( time(), 'everyminute', 'myCronJob' );
 	}
 }
 // ---------------------------------------------------------------
@@ -78,7 +79,7 @@ function scrape_url($postType, $URL)
 	if($result == false)
 	{
 		error_log('Failed to reach '.$URL);
-		return;
+		return false;
 	}
 
 	$scrapedPosts = array();
@@ -123,7 +124,7 @@ function scrape_url($postType, $URL)
 			// Now try to find the time buried in the post - note we don't
 			// use this for ordering anything so just treat as text string
 			$eventTime = 'TBD';
-			if(preg_match( '/([0-9]+[ ]*([ap]m|[AP]M))|(([0-1][0-9]|2[0-3])|([1-9][0-2]{0,1}))[\.:]([0-5][0-9])/',
+			if(preg_match( '/([0-9]+[ ]{0,1}([ap]m|[AP]M))|(([0-1][0-9]|2[0-3])|([1-9][0-2]{0,1}))[\.:]([0-5][0-9])/',
 					$subchunks[1], $match ) == 1)
 			{
 				$eventTime = $match[0];
@@ -160,7 +161,19 @@ function scrape_url($postType, $URL)
 			$eventDate = date('D d M Y', strtotime($subsubchunks[0]));
 	
 			// Now the title
-			$title = trim($subsubchunks[1]," ");
+			$title ='';
+			if($postType == 'Walk')
+			{
+				$title = trim($subsubchunks[1]," ");
+			}
+			else
+			{
+				for($j = 1; $j < count($subsubchunks); $j++)
+				{
+					if($j > 1) $title = $title.' - ';
+					$title = $title.trim($subsubchunks[$j]," ");
+				}
+			}
 	
 			// Now the Grade (if appropriate)
 			$grade = 'NONE';
@@ -169,7 +182,7 @@ function scrape_url($postType, $URL)
 				$grade = $match[0];
 			}
 
-			$debug = true;
+			$debug = false;
 			if($debug == true)
 			{
 				error_log('============================================');
@@ -187,7 +200,7 @@ function scrape_url($postType, $URL)
 			}
 	
 			// Not interested in posts that have an event date in the past
-			if(strtotime($eventDate) > time())
+			if(strtotime($eventDate) > (time() - 24*60*60))
 			{
 				$scrapedPosts[]=array(
 						'grade'=>$grade,
@@ -209,7 +222,7 @@ function scrape_url($postType, $URL)
 	else
 	{
 		error_log('Failed to split posts from: '.$result);
-	}
+	}	
 	return $scrapedPosts;
 }
 // ---------------------------------------------------------------
@@ -230,7 +243,7 @@ function reconcile_posts($postType, $scrapedPosts)
 			'meta_query' => array(
 					array(
 							'key' => 'dbt_date',
-							'value' => time(),
+							'value' => time() - 24*60*60,
 							'compare' => '>=',
 					),
 					array(
@@ -243,86 +256,128 @@ function reconcile_posts($postType, $scrapedPosts)
 			'order' => 'ASC',);
 	
 	$query = new WP_Query( $args );
-
+	
 	if ($query->have_posts())
 	{
-		$localMatched = array();
 		while ($query->have_posts())
 		{
+			$query->the_post();
+			if( !is_object($post) )
+			{
+				error_log('No post object');
+				return;
+			}
 			// Hoover out all the fields from the post
 			$eventdate = get_post_meta($post->ID, 'dbt_date', 'true');
 			date('D d M Y', $eventdate);
 				
 			$grade = get_post_meta($post->ID, 'dbt_grade', 'true');
-			$title = wp_get_title();
-			$content = wp_get_post();
+			$title = get_the_title($post->ID);
+			$content = get_the_content($post->ID);
 			$eventTime = get_post_meta($post->ID, 'dbt_time', 'true');
+			$eventDate = get_post_meta($post->ID, 'dbt_date', 'true');
 			$postcode = get_post_meta($post->ID, 'dbt_postcode', 'true');
 			$gridref = get_post_meta($post->ID, 'dbt_gridref', 'true');
 			$meetat = get_post_meta($post->ID, 'dbt_meetat', 'true');
 			$contactName = get_post_meta($post->ID, 'dbt_contactname', 'true');
 			$contactPhone = get_post_meta($post->ID, 'dbt_contactphone', 'true');
 			$matched = false; // $post->ID
-				
+			
 			// Does this match a newly scraped post?
-			foreach ($scrapedPosts as $scrapedPost)
+			if(count($scrapedPosts) > 0)
 			{
-				// Don't bother with email - old site doesn't use them generally
-				if($scrapedPost['title'] == $title &&
-						$scrapedPost['grade'] == $grade &&
-						$scrapedPost['eventTime'] == $eventTime &&
-						strtotime($scrapedPost['eventDate']) == $eventDate &&
-						$scrapedPost['postcode'] == $postcode &&
-						$scrapedPost['gridref'] == $gridref &&
-						$scrapedPost['meetat'] == $meetat &&
-						$scrapedPost['contactName'] == $contactName &&
-						$scrapedPost['contactPhone'] == $contactPhone &&
-						$scrapedPost['content'] == $content)
+				foreach ($scrapedPosts as $key => $scrapedPost)
 				{
-					// set the $localMatched to true and leave this existing wp post alone,
-					// also set the matched attribute on the scraped post
-					$matched = true;
-					$scrapedPosts['matched'] = 'true';
+					$debug = true;
+					if($debug)
+					{
+						error_log('+++++++++++++++++++++++++++++++');
+						error_log($scrapedPost['title'].' == '.$title);
+						error_log($scrapedPost['grade'].' == '.$grade);
+						error_log($scrapedPost['eventTime'].' == '.$eventTime);
+						error_log($scrapedPost['eventDate'].' == '.$eventDate);
+						error_log($scrapedPost['postcode'].' == '.$postcode);
+						error_log($scrapedPost['gridref'].' == '.$gridref);
+						error_log($scrapedPost['meetat'].' == '.$meetat);
+						error_log($scrapedPost['contactName'].' == '.$contactName);
+						error_log($scrapedPost['contactPhone'].' == '.$contactPhone);
+						error_log(html_entity_decode($scrapedPost['content']).' == '.html_entity_decode($content));
+						error_log('-------------------------------');
+					}
+						
+					if(is_array($scrapedPost) && array_key_exists ( 'title' , $scrapedPost))
+					{
+						// Don't bother with email - old site doesn't use them generally
+						if($scrapedPost['title'] == $title &&
+							$scrapedPost['grade'] == $grade &&
+							$scrapedPost['eventTime'] == $eventTime &&
+							strtotime($scrapedPost['eventDate']) == $eventDate &&
+							$scrapedPost['postcode'] == $postcode &&
+							$scrapedPost['gridref'] == $gridref &&
+							$scrapedPost['meetat'] == $meetat &&
+							$scrapedPost['contactName'] == $contactName &&
+							$scrapedPost['contactPhone'] == $contactPhone &&
+							html_entity_decode($scrapedPost['content']) == html_entity_decode($content))
+						{
+							// set the $matched to true and leave this existing wp post alone,
+							// also set the matched attribute on the scraped post
+							$matched = true;
+							$scrapedPosts[$key]['matched'] = 'true';
+							error_log($title.' : '.'matched');
+							break;
+						}
+					}
 				}
 			}
 				
 			// If we didn't find the wp post in the matches, then delete it
 			if($matched == false)
 			{
+				error_log('Deleting existing unmatched post : '.$title);
 				wp_delete_post($post->ID);
 			}
 		}
 	}
 
 	// Finally, loop through the scraped posts again and create any that haven't been matched
+	if(count($scrapedPosts) == 0) return;
+	
 	foreach ($scrapedPosts as $scrapedPost)
 	{
-		if($scrapedPost['matched']=='false')
+		if(is_array($scrapedPost) && array_key_exists ( 'title' , $scrapedPost)) // Sanity test it's a real entry
 		{
-			// TODO sort the next statment and add the meta tags
-			$new_post = array(
-					'post_title' => $scrapedPost['title'],
-					'post_content' => $scrapedPost['content'],
-					'post_status' => 'publish',
-					'post_date' => date('Y-m-d H:i:s'),
-					'post_author' => 'scraper',
-					'post_type' => $postType,
-					'post_category' => '',
-					'meta_input' => array(
-						'dbt_grade' => $scrapedPost['grade'],
-						'dbt_time' => $scrapedPost['eventTime'],
-						'dbt_date' => strtotime($scrapedPost['eventDate']),
-						'dbt_postcode' => $scrapedPost['postcode'],
-						'dbt_gridref' => $scrapedPost['gridref'],
-						'dbt_meetat' => $scrapedPost['meetat'],
-						'dbt_contactname' => $scrapedPost['contactName'],
-						'dbt_contactphone' => $scrapedPost['contactPhone'],
-						'dbt_scraped' => 'true',
-						'dbt_contactemail' => $scrapedPost['contactEmail']
-					)
-			);
-
-			$post_id = wp_insert_post($new_post);
+			if($scrapedPost['matched']=='false')
+			{
+				// TODO sort the next statment and add the meta tags
+				$new_post = array(
+						'post_title' => $scrapedPost['title'],
+						'post_content' => $scrapedPost['content'],
+						'post_status' => 'publish',
+						'post_date' => date('Y-m-d H:i:s'),
+						'post_author' => 'scraper',
+						'post_type' => $postType,
+						'post_category' => '',
+						'meta_input' => array(
+							'dbt_grade' => $scrapedPost['grade'],
+							'dbt_time' => $scrapedPost['eventTime'],
+							'dbt_date' => strtotime($scrapedPost['eventDate']),
+							'dbt_postcode' => $scrapedPost['postcode'],
+							'dbt_gridref' => $scrapedPost['gridref'],
+							'dbt_meetat' => $scrapedPost['meetat'],
+							'dbt_contactname' => $scrapedPost['contactName'],
+							'dbt_contactphone' => $scrapedPost['contactPhone'],
+							'dbt_scraped' => 'true',
+							'dbt_contactemail' => $scrapedPost['contactEmail']
+						)
+				);
+	
+				$post_id = wp_insert_post($new_post);
+				error_log('Post created : '.$scrapedPost['title']);
+			}
+			else
+			{
+				error_log('Post already exists : '.$scrapedPost['title']);
+			}
 		}
 	}
 }
@@ -336,10 +391,10 @@ function my_repeat_function()
 	error_log("timed function called");
 	
 	$scrapedwalks = scrape_url('Walk','http://www.walkcambridge.org/diary_walk.html');
-	reconcile_posts('Walk',$scrapedwalks);
+	if($scrapedwalks != false) reconcile_posts('Walk',$scrapedwalks);
 
 	$scrapedsocials = scrape_url('Social','http://www.walkcambridge.org/diary_social.html');
-	reconcile_posts('Social',$scrapedsocials);
+	if($scrapedsocials != false) reconcile_posts('Social',$scrapedsocials);
 }
 // ---------------------------------------------------------------
 
