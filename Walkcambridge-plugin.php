@@ -175,6 +175,16 @@ function scrape_url($postType, $URL)
 				}
 			}
 	
+			$distance = 'TBD';
+			// Now the distance (if appropriate)
+			if($postType == 'Walk')
+			{
+				if(preg_match('/([0-9]{1,2}[.]{0,1}[0-9] [Mm]iles)/', $subchunks[0], $match) == 1)
+				{
+					$distance = $match[0];
+				}
+			}
+			
 			// Now the Grade (if appropriate)
 			$grade = 'NONE';
 			if(preg_match('/(Easy|Leisurely|Moderate|Strenuous)/', $subchunks[0], $match) == 1)
@@ -204,6 +214,7 @@ function scrape_url($postType, $URL)
 			{
 				$scrapedPosts[]=array(
 						'grade'=>$grade,
+						'distance' => $distance,
 						'title'=>$title,
 						'content'=>$content,
 						'eventDate'=>$eventDate,
@@ -272,6 +283,7 @@ function reconcile_posts($postType, $scrapedPosts)
 			date('D d M Y', $eventdate);
 				
 			$grade = get_post_meta($post->ID, 'dbt_grade', 'true');
+			$distance = get_post_meta($post->ID, 'dbt_distance', 'true');
 			$title = get_the_title($post->ID);
 			$content = get_the_content($post->ID);
 			$eventTime = get_post_meta($post->ID, 'dbt_time', 'true');
@@ -294,6 +306,7 @@ function reconcile_posts($postType, $scrapedPosts)
 						error_log('+++++++++++++++++++++++++++++++');
 						error_log($scrapedPost['title'].' == '.$title);
 						error_log($scrapedPost['grade'].' == '.$grade);
+						error_log($scrapedPost['distance'].' == '.$distance);
 						error_log($scrapedPost['eventTime'].' == '.$eventTime);
 						error_log($scrapedPost['eventDate'].' == '.$eventDate);
 						error_log($scrapedPost['postcode'].' == '.$postcode);
@@ -310,6 +323,7 @@ function reconcile_posts($postType, $scrapedPosts)
 						// Don't bother with email - old site doesn't use them generally
 						if($scrapedPost['title'] == $title &&
 							$scrapedPost['grade'] == $grade &&
+							$scrapedPost['distance'] == $distance &&
 							$scrapedPost['eventTime'] == $eventTime &&
 							strtotime($scrapedPost['eventDate']) == $eventDate &&
 							$scrapedPost['postcode'] == $postcode &&
@@ -359,6 +373,7 @@ function reconcile_posts($postType, $scrapedPosts)
 						'post_category' => '',
 						'meta_input' => array(
 							'dbt_grade' => $scrapedPost['grade'],
+							'dbt_distance' => $scrapedPost['distance'],
 							'dbt_time' => $scrapedPost['eventTime'],
 							'dbt_date' => strtotime($scrapedPost['eventDate']),
 							'dbt_postcode' => $scrapedPost['postcode'],
